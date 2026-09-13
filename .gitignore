@@ -1,0 +1,23 @@
+.env
+.env.*
+!.env.example
+
+# Go build / test artifacts
+/bin/
+/tmp/
+coverage.out
+*.out
+
+# IDE / editor
+.vscode/
+.idea/
+.DS_Store
+
+# Logs and temp files
+*.log
+*.tmp
+*.pid
+
+# Docker local runtime data
+mosquitto/data/
+mosquitto/log/

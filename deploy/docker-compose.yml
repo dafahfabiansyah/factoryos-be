@@ -1,0 +1,33 @@
+services:
+  postgres:
+    image: postgres:17
+    container_name: factoryos-postgres
+    restart: unless-stopped
+
+    environment:
+      POSTGRES_DB: factoryos
+      POSTGRES_USER: factoryos
+      POSTGRES_PASSWORD: factoryos
+
+    ports:
+      - "5432:5432"
+
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+  mqtt:
+    image: eclipse-mosquitto:2
+    container_name: factoryos-mqtt
+    restart: unless-stopped
+
+    ports:
+      - "1883:1883"
+      - "9001:9001"
+
+    volumes:
+      - ./mosquitto/config:/mosquitto/config
+      - ./mosquitto/data:/mosquitto/data
+      - ./mosquitto/log:/mosquitto/log
+
+volumes:
+  postgres_data:
