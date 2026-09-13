@@ -11,6 +11,7 @@ import (
 type RefreshTokenRepository interface {
 	Create(ctx context.Context, params model.CreateRefreshTokenParams) (*model.RefreshToken, error)
 	GetByTokenHash(ctx context.Context, tokenHash string) (*model.RefreshToken, error)
+	GetByUserID(ctx context.Context, userID uuid.UUID) ([]*model.RefreshToken, error)
 	Revoke(ctx context.Context, id uuid.UUID) error
 	RevokeAllByUserID(ctx context.Context, userID uuid.UUID) error
 	DeleteExpired(ctx context.Context) (int64, error)
@@ -75,6 +76,38 @@ func (r *refreshTokenRepository) GetByTokenHash(ctx context.Context, tokenHash s
 	return &token, nil
 }
 
+func (r *refreshTokenRepository) GetByUserID(ctx context.Context, userID uuid.UUID) ([]*model.RefreshToken, error) {
+	query := `
+		SELECT id, user_id, token_hash, user_agent, ip_address::text, expires_at, revoked_at, created_at
+		FROM refresh_tokens WHERE user_id = $1 AND revoked_at IS NULL AND expires_at > NOW()
+		ORDER BY created_at DESC
+	`
+	rows, err := r.db.Query(ctx, query, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var tokens []*model.RefreshToken
+	for rows.Next() {
+		var token model.RefreshToken
+		if err := rows.Scan(
+			&token.ID,
+			&token.UserID,
+			&token.TokenHash,
+			&token.UserAgent,
+			&token.IPAddress,
+			&token.ExpiresAt,
+			&token.RevokedAt,
+			&token.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		tokens = append(tokens, &token)
+	}
+	return tokens, nil
+}
+
 func (r *refreshTokenRepository) Revoke(ctx context.Context, id uuid.UUID) error {
 	query := `UPDATE refresh_tokens SET revoked_at = NOW() WHERE id = $1`
 	_, err := r.db.Exec(ctx, query, id)
@@ -99,6 +132,7 @@ func (r *refreshTokenRepository) DeleteExpired(ctx context.Context) (int64, erro
 type PasswordResetTokenRepository interface {
 	Create(ctx context.Context, params model.CreatePasswordResetTokenParams) (*model.PasswordResetToken, error)
 	GetByTokenHash(ctx context.Context, tokenHash string) (*model.PasswordResetToken, error)
+	GetAllValid(ctx context.Context) ([]*model.PasswordResetToken, error)
 	MarkUsed(ctx context.Context, id uuid.UUID) error
 	DeleteExpired(ctx context.Context) (int64, error)
 }
@@ -156,6 +190,36 @@ func (r *passwordResetTokenRepository) GetByTokenHash(ctx context.Context, token
 	return &token, nil
 }
 
+func (r *passwordResetTokenRepository) GetAllValid(ctx context.Context) ([]*model.PasswordResetToken, error) {
+	query := `
+		SELECT id, user_id, token_hash, expires_at, used_at, created_at
+		FROM password_reset_tokens WHERE used_at IS NULL AND expires_at > NOW()
+		ORDER BY created_at DESC
+	`
+	rows, err := r.db.Query(ctx, query)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var tokens []*model.PasswordResetToken
+	for rows.Next() {
+		var token model.PasswordResetToken
+		if err := rows.Scan(
+			&token.ID,
+			&token.UserID,
+			&token.TokenHash,
+			&token.ExpiresAt,
+			&token.UsedAt,
+			&token.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		tokens = append(tokens, &token)
+	}
+	return tokens, nil
+}
+
 func (r *passwordResetTokenRepository) MarkUsed(ctx context.Context, id uuid.UUID) error {
 	query := `UPDATE password_reset_tokens SET used_at = NOW() WHERE id = $1`
 	_, err := r.db.Exec(ctx, query, id)
@@ -174,6 +238,7 @@ func (r *passwordResetTokenRepository) DeleteExpired(ctx context.Context) (int64
 type EmailVerificationTokenRepository interface {
 	Create(ctx context.Context, params model.CreateEmailVerificationTokenParams) (*model.EmailVerificationToken, error)
 	GetByTokenHash(ctx context.Context, tokenHash string) (*model.EmailVerificationToken, error)
+	GetAllValid(ctx context.Context) ([]*model.EmailVerificationToken, error)
 	MarkVerified(ctx context.Context, id uuid.UUID) error
 	DeleteExpired(ctx context.Context) (int64, error)
 }
@@ -229,6 +294,36 @@ func (r *emailVerificationTokenRepository) GetByTokenHash(ctx context.Context, t
 		return nil, err
 	}
 	return &token, nil
+}
+
+func (r *emailVerificationTokenRepository) GetAllValid(ctx context.Context) ([]*model.EmailVerificationToken, error) {
+	query := `
+		SELECT id, user_id, token_hash, expires_at, verified_at, created_at
+		FROM email_verification_tokens WHERE verified_at IS NULL AND expires_at > NOW()
+		ORDER BY created_at DESC
+	`
+	rows, err := r.db.Query(ctx, query)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var tokens []*model.EmailVerificationToken
+	for rows.Next() {
+		var token model.EmailVerificationToken
+		if err := rows.Scan(
+			&token.ID,
+			&token.UserID,
+			&token.TokenHash,
+			&token.ExpiresAt,
+			&token.VerifiedAt,
+			&token.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		tokens = append(tokens, &token)
+	}
+	return tokens, nil
 }
 
 func (r *emailVerificationTokenRepository) MarkVerified(ctx context.Context, id uuid.UUID) error {

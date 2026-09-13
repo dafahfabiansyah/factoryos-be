@@ -16,6 +16,7 @@ import (
 	"industrial-platform-BE/internal/module/auth/repository"
 	"industrial-platform-BE/internal/module/auth/service"
 	"industrial-platform-BE/internal/platform"
+	"industrial-platform-BE/internal/platform/email"
 )
 
 func main() {
@@ -44,6 +45,7 @@ func main() {
 
 	passwordService := service.NewPasswordService()
 	tokenService := service.NewTokenService(cfg.JWTSecret, cfg.JWTExpiryHour)
+	emailService := email.NewEmailService()
 
 	authService := service.NewAuthService(
 		userRepo,
@@ -53,6 +55,7 @@ func main() {
 		emailVerifyRepo,
 		passwordService,
 		tokenService,
+		emailService,
 		cfg.JWTExpiryHour,           // access token TTL
 		24*30*time.Hour,             // refresh token TTL (30 days)
 		1*time.Hour,                 // password reset TTL (1 hour)

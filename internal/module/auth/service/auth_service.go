@@ -8,6 +8,7 @@ import (
 	"github.com/google/uuid"
 	"industrial-platform-BE/internal/module/auth/model"
 	"industrial-platform-BE/internal/module/auth/repository"
+	"industrial-platform-BE/internal/platform/email"
 )
 
 var (
@@ -39,6 +40,7 @@ type authService struct {
 	emailVerifyRepo     repository.EmailVerificationTokenRepository
 	passwordService     PasswordService
 	tokenService        TokenService
+	emailService        email.Service
 	accessTokenTTL      time.Duration
 	refreshTokenTTL     time.Duration
 	resetTokenTTL       time.Duration
@@ -53,6 +55,7 @@ func NewAuthService(
 	emailVerifyRepo repository.EmailVerificationTokenRepository,
 	passwordService PasswordService,
 	tokenService TokenService,
+	emailService email.Service,
 	accessTokenTTL time.Duration,
 	refreshTokenTTL time.Duration,
 	resetTokenTTL time.Duration,
@@ -66,6 +69,7 @@ func NewAuthService(
 		emailVerifyRepo:     emailVerifyRepo,
 		passwordService:     passwordService,
 		tokenService:        tokenService,
+		emailService:        emailService,
 		accessTokenTTL:      accessTokenTTL,
 		refreshTokenTTL:     refreshTokenTTL,
 		resetTokenTTL:       resetTokenTTL,
@@ -84,7 +88,6 @@ func (s *authService) Register(ctx context.Context, req model.RegisterRequest) (
 		return nil, err
 	}
 
-	// Create organization first
 	orgID, err := s.orgRepo.Create(ctx, req.OrganizationName)
 	if err != nil {
 		return nil, err
@@ -101,6 +104,27 @@ func (s *authService) Register(ctx context.Context, req model.RegisterRequest) (
 	if err != nil {
 		return nil, err
 	}
+
+	verifyToken, err := s.tokenService.GenerateRefreshToken()
+	if err != nil {
+		return nil, err
+	}
+
+	verifyTokenHash, err := s.tokenService.HashToken(verifyToken)
+	if err != nil {
+		return nil, err
+	}
+
+	_, err = s.emailVerifyRepo.Create(ctx, model.CreateEmailVerificationTokenParams{
+		UserID:    user.ID,
+		TokenHash: verifyTokenHash,
+		ExpiresAt: time.Now().Add(s.verifyTokenTTL),
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	s.emailService.SendVerificationEmail(user.Email, user.Name, verifyToken)
 
 	return s.generateTokens(ctx, user, "", "")
 }
@@ -197,18 +221,26 @@ func (s *authService) ForgotPassword(ctx context.Context, req model.ForgotPasswo
 		return err
 	}
 
-	_ = resetToken // TODO: Send email
+	s.emailService.SendPasswordResetEmail(user.Email, user.Name, resetToken)
+
 	return nil
 }
 
 func (s *authService) ResetPassword(ctx context.Context, req model.ResetPasswordRequest) error {
-	tokenHash, err := s.tokenService.HashToken(req.Token)
+	tokens, err := s.passwordResetRepo.GetAllValid(ctx)
 	if err != nil {
-		return err
+		return ErrTokenInvalid
 	}
 
-	storedToken, err := s.passwordResetRepo.GetByTokenHash(ctx, tokenHash)
-	if err != nil {
+	var storedToken *model.PasswordResetToken
+	for _, t := range tokens {
+		if err := s.tokenService.VerifyTokenHash(req.Token, t.TokenHash); err == nil {
+			storedToken = t
+			break
+		}
+	}
+
+	if storedToken == nil {
 		return ErrTokenInvalid
 	}
 
@@ -234,13 +266,20 @@ func (s *authService) ResetPassword(ctx context.Context, req model.ResetPassword
 }
 
 func (s *authService) VerifyEmail(ctx context.Context, req model.VerifyEmailRequest) error {
-	tokenHash, err := s.tokenService.HashToken(req.Token)
+	tokens, err := s.emailVerifyRepo.GetAllValid(ctx)
 	if err != nil {
-		return err
+		return ErrTokenInvalid
 	}
 
-	storedToken, err := s.emailVerifyRepo.GetByTokenHash(ctx, tokenHash)
-	if err != nil {
+	var storedToken *model.EmailVerificationToken
+	for _, t := range tokens {
+		if err := s.tokenService.VerifyTokenHash(req.Token, t.TokenHash); err == nil {
+			storedToken = t
+			break
+		}
+	}
+
+	if storedToken == nil {
 		return ErrTokenInvalid
 	}
 
